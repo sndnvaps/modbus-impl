@@ -814,6 +814,8 @@ dependencies = [
 [[package]]
 name = "rp-usb-serial"
 version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "82623410ce7d594c7a11f84828212eac61e9fc858c6a9b80abf81cd35c62a65f"
 dependencies = [
  "cortex-m",
  "cortex-m-rt",

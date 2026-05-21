@@ -25,8 +25,7 @@ static_cell = "2.1.1"
 portable-atomic = { version = "1.13.1", default-features = false, features = [ "critical-section"] }
 
 
-
-rp-usb-serial = {  path = "../../rp-usb-serial/rp-usb-serial", version = "0.4.1" }
+rp-usb-serial = {   version = "0.4.1" }
 modbus-impl = {path = "../modbus-impl", version = "0.4.0" }
 # cargo build/run
 [profile.dev]
