@@ -1,0 +1,83 @@
+[package]
+edition = "2021"
+name = "rp2040-usb-modbus-example"
+version = "0.5.0"
+license = "MIT OR Apache-2.0"
+rust-version = "1.77"
+
+[dependencies]
+cortex-m = { version = "0.7.7" }
+cortex-m-rt = "0.7.5"
+embedded-hal = {version = "1.0.0"}
+panic-halt = "1.0.0"
+rp2040-hal = { version = "0.12.0", features = [
+    "critical-section-impl",
+    "rt",
+    "defmt",
+] }
+rp2040-boot2 = "0.3.0"
+
+#fugit = "0.3.5"
+
+
+critical-section = { version = "1.2.0"}
+static_cell = "2.1.1"
+portable-atomic = { version = "1.13.1", default-features = false, features = [ "critical-section"] }
+
+
+
+rp-usb-serial = {  path = "../../rp-usb-serial/rp-usb-serial", version = "0.4.1" }
+modbus-impl = {path = "../modbus-impl", version = "0.4.0" }
+# cargo build/run
+[profile.dev]
+codegen-units = 1
+debug = 2
+debug-assertions = true
+incremental = false
+opt-level = 3
+overflow-checks = true
+
+# cargo build/run --release
+[profile.release]
+codegen-units = 1
+debug = 2
+debug-assertions = false
+incremental = false
+lto = 'fat'
+opt-level = 3
+overflow-checks = false
+
+# do not optimize proc-macro crates = faster builds from scratch
+[profile.dev.build-override]
+codegen-units = 8
+debug = false
+debug-assertions = false
+opt-level = 0
+overflow-checks = false
+
+[profile.release.build-override]
+codegen-units = 8
+debug = false
+debug-assertions = false
+opt-level = 0
+overflow-checks = false
+
+# cargo test
+[profile.test]
+codegen-units = 1
+debug = 2
+debug-assertions = true
+incremental = false
+opt-level = 3
+overflow-checks = true
+
+# cargo test --release
+[profile.bench]
+codegen-units = 1
+debug = 2
+debug-assertions = false
+incremental = false
+lto = 'fat'
+opt-level = 3
+
+
