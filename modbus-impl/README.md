@@ -91,6 +91,7 @@ In your main loop you typically:
 ## Example for use
 
 [rp2040-usb-modbus-example](https://github.com/sndnvaps/modbus-impl/tree/main/rp2040-usb-modbus-example)
+[rp2350-pio-soft-serial-modbus-example](https://github.com/sndnvaps/modbus-impl/tree/main/rp2350-pio-modbus-example)
 
 ---
 
