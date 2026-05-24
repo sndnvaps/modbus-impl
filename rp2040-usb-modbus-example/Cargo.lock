@@ -508,13 +508,9 @@ checksum = "f8ca58f447f06ed17d5fc4043ce1b10dd205e060fb3ce5b979b8ed8e59ff3f79"
 
 [[package]]
 name = "modbus-impl"
-version = "0.4.0"
-dependencies = [
- "cortex-m",
- "cortex-m-rt",
- "riscv",
- "riscv-rt",
-]
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b001b65be662537a57fc3093c83d90a971825d1be82f5a95eaa836425eb047d4"
 
 [[package]]
 name = "nb"

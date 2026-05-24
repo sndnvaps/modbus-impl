@@ -26,7 +26,7 @@ portable-atomic = { version = "1.13.1", default-features = false, features = [ "
 
 
 rp-usb-serial = {   version = "0.4.1" }
-modbus-impl = {path = "../modbus-impl", version = "0.4.0" }
+modbus-impl = { version = "0.5.0" }
 # cargo build/run
 [profile.dev]
 codegen-units = 1
