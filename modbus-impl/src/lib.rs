@@ -1,5 +1,6 @@
 #![no_std]
 /// RegisterRead：支持 is_valid(addr) 用于越界检查
+/// 支持03/04寄存器的读取(Hreg/Ireg)
 pub trait RegisterRead {
     fn get(&self, addr: u16) -> u16;
     fn is_valid(&self, addr: u16) -> bool;
@@ -99,6 +100,8 @@ impl<const N: usize> RegisterRead for Ireg<N> {
         (addr as usize) < N
     }
 }
+
+///HREG（保持寄存器）结构体（FC03）
 pub struct Hreg<const N: usize> {
     regs: [u16; N],
 }

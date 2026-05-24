@@ -1,6 +1,6 @@
 # Modbus-Impl (RTU) for rp-usb-serial
 
-A small `no_std` Modbus RTU helper library designed to run on embedded Rust targets (e.g. RP2040/RP2350) and work with your `rp-usb-serial` USB CDC link. It currently focuses on **Modbus function codes 01, 02, 03, and 04** (read operations) and builds valid Modbus RTU frames including **CRC16**.
+A small `no_std` Modbus RTU helper library designed to run on embedded Rust targets (e.g. RP2040/RP2350) and work with  `rp-usb-serial` USB CDC link & `rp-pio-serial` PIO-based software serial for RP2040 & RP2350 using arbitrary GPIO pins. It currently focuses on **Modbus function codes 01, 02, 03, and 04** (read operations) and builds valid Modbus RTU frames including **CRC16**.
 
 ---
 
@@ -91,6 +91,7 @@ In your main loop you typically:
 ## Example for use
 
 [rp2040-usb-modbus-example](https://github.com/sndnvaps/modbus-impl/tree/main/rp2040-usb-modbus-example)
+
 [rp2350-pio-soft-serial-modbus-example](https://github.com/sndnvaps/modbus-impl/tree/main/rp2350-pio-modbus-example)
 
 ---

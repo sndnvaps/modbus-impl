@@ -1,12 +1,12 @@
 [package]
 name = "modbus-impl"
-version = "0.5.1"
+version = "0.5.2"
 edition = "2021"
 rust-version = "1.77"
 documentation = "https://docs.rs/modbus-impl"
 readme = "README.md"
 authors = ["sndnvaps <admin@sndnvaps.com>"]
-description = "modbus-impl for embedded device"
+description = "A small `no_std` Modbus RTU helper library designed to run on embedded Rust targets"
 build = false
 autolib = false
 keywords = [
