@@ -1,20 +1,18 @@
 [package]
 name = "modbus-impl"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2021"
 rust-version = "1.77"
 documentation = "https://docs.rs/modbus-impl"
 readme = "README.md"
 authors = ["sndnvaps <admin@sndnvaps.com>"]
-description = "modbus-impl for rp2040&rp2350 with rp2040-hal & rp235x-hal"
+description = "modbus-impl for embedded device"
 build = false
 autolib = false
 keywords = [
-    "raspberry-pi",
-    "riscv32",
-    "rp2040",
-    "rp2350",
+    "modbus",
     "embedded-hal",
+    "no-std",
 ]
 categories = [
     "embedded",
@@ -22,60 +20,13 @@ categories = [
     "no-std",
 ]
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/sndnvaps/rp-usb-serial"
+repository = "https://github.com/sndnvaps/modbus-impl"
 
 [package.metadata.docs.rs]
-features = [
-    "rp2040",
-]
 targets = ["thumbv6m-none-eabi"]
-
-[features]
-default = []
-rp2040 = ["dep:rp2040-hal"]
-rp2350 = ["dep:rp235x-hal"]
 
 
 [lib]
 name = "modbus_impl"
 path = "src/lib.rs"
-
-
-[dependencies.rp2040-hal]
-version = "0.12.0"
-optional = true
-features = [
-    "rt",
-    "defmt",
-]
-
-[dependencies.rp235x-hal]
-version = "0.4.0"
-optional = true
-features = [
-    "rt",
-    "defmt",
-] 
-
-# For RP2040
-[target.'thumbv6m-none-eabi'.dependencies.cortex-m]
-version = "0.7.2"
-
-[target.'thumbv6m-none-eabi'.dependencies.cortex-m-rt]
-version = "0.7"
-
-# For RP2350 ARM
-[target.'thumbv8m.main-none-eabihf'.dependencies.cortex-m]
-version = "0.7.2"
-
-[target.'thumbv8m.main-none-eabihf'.dependencies.cortex-m-rt]
-version = "0.7"
-
-# For RP2350 RISCV32
-[target.'riscv32imac-unknown-none-elf'.dependencies.riscv]
-version = "0.11"
-
-[target.'riscv32imac-unknown-none-elf'.dependencies.riscv-rt]
-version = "0.12"
-
 
