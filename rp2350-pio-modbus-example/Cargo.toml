@@ -18,7 +18,7 @@ rp235x-hal = { version = "0.4.0", features = [
 
 
 rp-pio-serial = {  version = "0.6.1", default-features = false, features = [ "rp2350"] }
-modbus-impl = { version = "0.5.0" }
+modbus-impl = { version = "0.5.1" }
 
 # cargo build/run
 [profile.dev]
