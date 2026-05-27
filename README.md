@@ -1,6 +1,6 @@
-# Modbus-Impl (RTU) for rp-usb-serial
+# Modbus-Impl (RTU) for rp-usb-serial & rp-pio-serial
 
-A small `no_std` Modbus RTU helper library designed to run on embedded Rust targets (e.g. RP2040/RP2350) and work with your `rp-usb-serial` USB CDC link. It currently focuses on **Modbus function codes 01, 02, 03, and 04** (read operations) and builds valid Modbus RTU frames including **CRC16**.
+A small `no_std` Modbus RTU helper library designed to run on embedded Rust targets (e.g. RP2040/RP2350) and work with  `rp-usb-serial` USB CDC link & `rp-pio-serial` PIO-based software serial for RP2040 & RP2350 using arbitrary GPIO pins. It currently focuses on **Modbus function codes 01, 02, 03, and 04** (read operations) and builds valid Modbus RTU frames including **CRC16**.
 
 ---
 
@@ -11,7 +11,7 @@ At runtime the library processes fixed-length Modbus requests carried over a byt
 1. Validates **CRC16 (Modbus polynomial 0xA001, init 0xFFFF)**  
 2. Parses the request fields:
    - Unit ID
-   - Function code (0x01/0x02/0x03/0x04)
+   - Function code (0x01/0x02/0x03/0x04/0x05/0x06)
    - Start address
    - Quantity
 3. Checks **address range** using `is_valid(addr)`
@@ -30,6 +30,8 @@ At runtime the library processes fixed-length Modbus requests carried over a byt
 - **0x02** Read Discrete Inputs  
 - **0x03** Read Holding Registers (16-bit registers, big-endian in the payload)  
 - **0x04** Read Input Registers (16-bit registers, big-endian in the payload)
+- **0x05** Write Single Coil
+- **0x06** Write Single Register
 
 Coils/inputs are packed into bytes using Modbus rules (**LSB-first bit packing**).
 
@@ -44,15 +46,23 @@ Used for 16-bit register based functions (FC03/FC04):
 - `get(addr: u16) -> u16`
 - `is_valid(addr: u16) -> bool`
 
+### `RegisterWrite`
+Used for 16-bit register based functions (FC06)
+- 'set_reg(addr: u16, val: u16)`
+
 ### `BitRead`
 Used for bit based functions (FC01/FC02):
 - `get(addr: u16) -> bool`
 - `is_valid(addr: u16) -> bool`
 
+### `BitWrite`
+Used for 16 bit based functions (FC05)
+- `set_bit(addr: u16, val: bool)`
+
 It also provides basic storage types that implement these traits:
-- `Hreg<N>` for Holding Registers (FC03)
+- `Hreg<N>` for Holding Registers (FC03/FC06)
 - `Ireg<N>` for Input Registers (FC04)
-- `Coil<N>` for Coils (FC01)
+- `Coil<N>` for Coils (FC01/FC05)
 - `Ists<N>` for Discrete Inputs (FC02)
 
 ---
@@ -65,9 +75,8 @@ Key components:
   Implements Modbus RTU CRC16.
 
 - **Frame parsing**  
-  - Requests are assumed to be **8 bytes long** (standard RTU frame for function 01/02/03/04 read requests).
-  - `parse_req03()` exists for FC03 parsing.
-  - `parse_pdu()` / `PduReq` dispatch supports multiple function codes.
+  - Requests are assumed to be **8 bytes long** (standard RTU frame for function 01/02/03/04 read requests, 05/06 write requests).
+  - `parse_pdu()` dispatch supports multiple function codes.
 
 - **Response builders**
   - `build_resp_bit_reads()` builds FC01/FC02 responses.
@@ -88,12 +97,12 @@ In your main loop you typically:
 3. Send the resulting frame back with:
    - `RpUsbConsole::write(&resp_or_exc[..len])`
 
----
 
 ## Notes / Limitations
 
 - This library is RTU-focused but transport-agnostic: it assumes requests arrive as a byte stream and are accumulated into **exact 8-byte frames**.
-- Only **read** functions are implemented (01/02/03/04). Write functions (06/15/16/…) are not included.
+- Only **read** functions are implemented (01/02/03/04).
+- Write functions now include 05/06
 - Bit packing follows Modbus LSB-first conventions.
 
 ---

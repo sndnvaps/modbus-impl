@@ -4,7 +4,9 @@
 use hal::{entry, pac};
 use rp2040_hal as hal;
 
-use modbus_impl::{random, BitRead, Coil, Hreg, Ireg, Ists, ModbusCtx, RegisterRead};
+use modbus_impl::{
+    random, BitRead, BitWrite, Coil, Hreg, Ireg, Ists, ModbusCtx, RegisterRead, RegisterWrite,
+};
 use rp_usb_serial::RpUsbConsole;
 
 use panic_halt as _;
@@ -25,7 +27,7 @@ fn u8_to_bool(value: u8) -> bool {
 #[entry]
 fn main() -> ! {
     let mut pac = pac::Peripherals::take().unwrap();
-    let core = pac::CorePeripherals::take().unwrap();
+    //let core = pac::CorePeripherals::take().unwrap();
 
     let mut watchdog = hal::Watchdog::new(pac.WATCHDOG);
 
@@ -58,7 +60,7 @@ fn main() -> ! {
     let mut ists: Ists<REG_COUNT> = Ists::new(); // FC02
 
     // ModbusCtx：把四类资源绑到一个上下文里
-    let ctx = ModbusCtx {
+    let mut ctx = ModbusCtx {
         holdings: &mut hregs,
         inputs: &mut iregs,
         coils: &mut coils,
@@ -80,10 +82,10 @@ fn main() -> ! {
 
     loop {
         // 更新保持寄存器（FC03） ,功能测试正常
-        let val1 = random(250, 350);
-        let val2 = random(330, 480);
-        ctx.holdings.set(0, val1);
-        ctx.holdings.set(1, val2);
+        //let val1 = random(250, 350);
+        //let val2 = random(330, 480);
+        // ctx.holdings.set(0, val1);
+        //ctx.holdings.set(1, val2);
 
         //更新线圈（FC01），功能测试正常
         //let val1 = random(0, 9);
@@ -102,6 +104,10 @@ fn main() -> ! {
         //let val2 = random(0, 1);
         //ctx.ists.set_bit(0, u8_to_bool(val1 as u8));
         //ctx.ists.set_bit(1, u8_to_bool(val2 as u8));
+
+        //FC05,功能测试正常
+
+        //FC06功能测试正常
 
         // USB 维护 + 搬运 RX 到库内部队列
         RpUsbConsole::poll();
@@ -130,6 +136,11 @@ fn main() -> ! {
                         RpUsbConsole::write(&exc_buf[..resp_len]);
                     } else {
                         RpUsbConsole::write(&resp_buf[..resp_len]);
+                        //when receive fc06 func_code
+                        //ctx.holdings.get(0);
+
+                        //when receive fc05 func_code
+                        //ctx.coils.get(0);
                     }
 
                     // 保留剩余字节
