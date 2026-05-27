@@ -5,10 +5,21 @@ pub trait RegisterRead {
     fn get(&self, addr: u16) -> u16;
     fn is_valid(&self, addr: u16) -> bool;
 }
+
+/// 用于 FC06 写单保持寄存器
+pub trait RegisterWrite {
+    fn set_reg(&mut self, addr: u16, val: u16);
+}
+
 /// 支持 01/02 的位读取（Coil/ISTS）
 pub trait BitRead {
     fn get(&self, addr: u16) -> bool;
     fn is_valid(&self, addr: u16) -> bool;
+}
+
+/// 用于 FC05 写单线圈
+pub trait BitWrite {
+    fn set_bit(&mut self, addr: u16, val: bool);
 }
 
 /// Coil 结构体（FC01）
@@ -29,6 +40,7 @@ impl<const N: usize> Coil<N> {
         &self.regs
     }
 }
+
 impl<const N: usize> BitRead for Coil<N> {
     fn get(&self, addr: u16) -> bool {
         let i = addr as usize;
@@ -40,6 +52,12 @@ impl<const N: usize> BitRead for Coil<N> {
     }
     fn is_valid(&self, addr: u16) -> bool {
         (addr as usize) < N
+    }
+}
+
+impl<const N: usize> BitWrite for Coil<N> {
+    fn set_bit(&mut self, addr: u16, val: bool) {
+        Coil::set_bit(self, addr, val);
     }
 }
 
@@ -135,6 +153,12 @@ impl<const N: usize> RegisterRead for Hreg<N> {
     }
     fn is_valid(&self, addr: u16) -> bool {
         (addr as usize) < N
+    }
+}
+
+impl<const N: usize> RegisterWrite for Hreg<N> {
+    fn set_reg(&mut self, addr: u16, val: u16) {
+        Hreg::set(self, addr, val);
     }
 }
 
@@ -243,86 +267,6 @@ pub fn build_resp_bit_reads<const MAX_QTY: usize, B: BitRead>(
     body_len + 2
 }
 
-/// 组装 FC04 响应（与 FC03 类似，只是 Func=0x04）
-pub fn build_resp04<const MAX_QTY: usize, R: RegisterRead>(
-    out: &mut [u8],
-    unit_id: u8,
-    start_addr: u16,
-    quantity: u16,
-    regs: &R,
-) -> usize {
-    // 复用 build_resp03，把 func 固定为 0x04
-    let qty = quantity as usize;
-
-    out[0] = unit_id;
-    out[1] = 0x04;
-    out[2] = (qty as u8) * 2;
-
-    for i in 0..qty {
-        let addr = start_addr.wrapping_add(i as u16);
-        let v = regs.get(addr);
-        let base = 3 + i * 2;
-        out[base] = (v >> 8) as u8; // big-endian
-        out[base + 1] = (v & 0xFF) as u8;
-    }
-
-    let body_len = 3 + qty * 2;
-    let crc = crc16_modbus(&out[..body_len]);
-    out[body_len] = (crc & 0xFF) as u8;
-    out[body_len + 1] = (crc >> 8) as u8;
-    body_len + 2
-}
-
-/// 解析固定 8 字节 Modbus RTU 03 请求
-pub fn parse_req03(frame: &[u8; 8]) -> Option<Req03> {
-    if frame[1] != 0x03 {
-        return None;
-    }
-    let expected_crc = u16::from_le_bytes([frame[6], frame[7]]);
-    let calc_crc = crc16_modbus(&frame[..6]);
-    if expected_crc != calc_crc {
-        return None;
-    }
-
-    let start_addr = u16::from_be_bytes([frame[2], frame[3]]);
-    let quantity = u16::from_be_bytes([frame[4], frame[5]]);
-
-    Some(Req03 {
-        unit_id: frame[0],
-        start_addr,
-        quantity,
-    })
-}
-
-/// 组装 03 响应帧：Unit(1)+Func(1)+ByteCount(1)+Reg(2*quantity)+CRC(2)
-pub fn build_resp03<const MAX_QTY: usize, R: RegisterRead>(
-    out: &mut [u8],
-    unit_id: u8,
-    start_addr: u16,
-    quantity: u16,
-    regs: &R,
-) -> usize {
-    let qty = quantity as usize;
-    // 要求：quantity <= MAX_QTY，且 out 足够大
-    out[0] = unit_id;
-    out[1] = 0x03;
-    out[2] = (qty as u8) * 2;
-
-    for i in 0..qty {
-        let addr = start_addr.wrapping_add(i as u16);
-        let v = regs.get(addr);
-        let base = 3 + i * 2;
-        out[base] = (v >> 8) as u8; // register big-endian
-        out[base + 1] = (v & 0xFF) as u8;
-    }
-
-    let body_len = 3 + qty * 2;
-    let crc = crc16_modbus(&out[..body_len]);
-    out[body_len] = (crc & 0xFF) as u8; // CRC low
-    out[body_len + 1] = (crc >> 8) as u8; // CRC high
-    body_len + 2
-}
-
 /// 组装异常响应：Function=03|0x80 + ExceptionCode(1) + CRC(2)
 pub fn build_exception_resp<const BUF: usize>(
     out: &mut [u8; BUF],
@@ -350,9 +294,9 @@ pub struct ModbusCtx<'a, H, I, C, D> {
 
 impl<'a, H, I, C, D> ModbusCtx<'a, H, I, C, D>
 where
-    H: RegisterRead,
+    H: RegisterRead + RegisterWrite,
     I: RegisterRead,
-    C: BitRead,
+    C: BitRead + BitWrite,
     D: BitRead,
 {
     /// pharse_pdu: 解析固定 8 字节 Modbus RTU 请求，并组装响应/异常
@@ -360,7 +304,7 @@ where
     /// - 正常响应：返回 out_tx 中的长度
     /// - 异常响应：写入 out_exc，并返回 5
     pub fn pharse_pdu<const MAX_QTY: usize>(
-        &self,
+        &mut self,
         req8: &[u8; 8],
         out_tx: &mut [u8],
         out_exc: &mut [u8; 5],
@@ -385,18 +329,17 @@ where
         let start_addr = u16::from_be_bytes([req8[2], req8[3]]);
         let quantity = u16::from_be_bytes([req8[4], req8[5]]);
 
-        // quantity 校验
-        if quantity == 0 || (quantity as usize) > MAX_QTY {
-            return build_exception_resp_fixed::<5>(
-                out_exc,
-                unit_id,
-                func | 0x80,
-                exc::ILLEGAL_DATA_VALUE,
-            );
-        }
-
         match func {
             0x01 => {
+                // quantity 校验
+                if quantity == 0 || (quantity as usize) > MAX_QTY {
+                    return build_exception_resp_fixed::<5>(
+                        out_exc,
+                        unit_id,
+                        func | 0x80,
+                        exc::ILLEGAL_DATA_VALUE,
+                    );
+                }
                 // FC01 Read Coils
                 let end = start_addr.wrapping_add(quantity.saturating_sub(1));
                 if !self.coils.is_valid(start_addr) || !self.coils.is_valid(end) {
@@ -413,6 +356,15 @@ where
             }
 
             0x02 => {
+                // quantity 校验
+                if quantity == 0 || (quantity as usize) > MAX_QTY {
+                    return build_exception_resp_fixed::<5>(
+                        out_exc,
+                        unit_id,
+                        func | 0x80,
+                        exc::ILLEGAL_DATA_VALUE,
+                    );
+                }
                 // FC02 Read Discrete Inputs
                 let end = start_addr.wrapping_add(quantity.saturating_sub(1));
                 if !self.ists.is_valid(start_addr) || !self.ists.is_valid(end) {
@@ -429,6 +381,15 @@ where
             }
 
             0x03 => {
+                // quantity 校验
+                if quantity == 0 || (quantity as usize) > MAX_QTY {
+                    return build_exception_resp_fixed::<5>(
+                        out_exc,
+                        unit_id,
+                        func | 0x80,
+                        exc::ILLEGAL_DATA_VALUE,
+                    );
+                }
                 // FC03 Read Holding Registers
                 let end = start_addr.wrapping_add(quantity.saturating_sub(1));
                 if !self.holdings.is_valid(start_addr) || !self.holdings.is_valid(end) {
@@ -450,6 +411,15 @@ where
             }
 
             0x04 => {
+                // quantity 校验
+                if quantity == 0 || (quantity as usize) > MAX_QTY {
+                    return build_exception_resp_fixed::<5>(
+                        out_exc,
+                        unit_id,
+                        func | 0x80,
+                        exc::ILLEGAL_DATA_VALUE,
+                    );
+                }
                 // FC04 Read Input Registers
                 let end = start_addr.wrapping_add(quantity.saturating_sub(1));
                 if !self.inputs.is_valid(start_addr) || !self.inputs.is_valid(end) {
@@ -468,6 +438,77 @@ where
                     quantity,
                     self.inputs,
                 )
+            }
+
+            0x05 => {
+                // FC05: addr=start_addr, value=quantity(0xFF00/0x0000)
+                let coil_value = quantity;
+
+                let bit = match coil_value {
+                    0xFF00 => true,
+                    0x0000 => false,
+                    _ => {
+                        return build_exception_resp_fixed::<5>(
+                            out_exc,
+                            unit_id,
+                            0x05 | 0x80,
+                            exc::ILLEGAL_DATA_VALUE,
+                        );
+                    }
+                };
+
+                if !self.coils.is_valid(start_addr) {
+                    return build_exception_resp_fixed::<5>(
+                        out_exc,
+                        unit_id,
+                        0x05 | 0x80,
+                        exc::ILLEGAL_DATA_ADDRESS,
+                    );
+                }
+
+                self.coils.set_bit(start_addr, bit);
+
+                // 正常响应：回显请求前6字节 + CRC
+                out_tx[0] = unit_id;
+                out_tx[1] = 0x05;
+                out_tx[2] = (start_addr >> 8) as u8;
+                out_tx[3] = (start_addr & 0xFF) as u8;
+                out_tx[4] = (coil_value >> 8) as u8;
+                out_tx[5] = (coil_value & 0xFF) as u8;
+
+                let crc = crc16_modbus(&out_tx[..6]);
+                out_tx[6] = (crc & 0xFF) as u8;
+                out_tx[7] = (crc >> 8) as u8;
+                8
+            }
+
+            0x06 => {
+                // FC06: 写单保持寄存器：addr=start_addr, value=quantity(任意 u16)
+                let reg_value = quantity;
+
+                if !self.holdings.is_valid(start_addr) {
+                    return build_exception_resp_fixed::<5>(
+                        out_exc,
+                        unit_id,
+                        0x06 | 0x80,
+                        exc::ILLEGAL_DATA_ADDRESS,
+                    );
+                }
+
+                self.holdings.set_reg(start_addr, reg_value);
+
+                // 正常响应：回显请求前6字节 + CRC
+                out_tx[0] = unit_id;
+                out_tx[1] = 0x06;
+                out_tx[2] = (start_addr >> 8) as u8;
+                out_tx[3] = (start_addr & 0xFF) as u8;
+                out_tx[4] = (reg_value >> 8) as u8;
+                out_tx[5] = (reg_value & 0xFF) as u8;
+
+                let crc = crc16_modbus(&out_tx[..6]);
+                out_tx[6] = (crc & 0xFF) as u8;
+                out_tx[7] = (crc >> 8) as u8;
+                8
             }
 
             _ => {
