@@ -48,7 +48,7 @@ Used for 16-bit register based functions (FC03/FC04):
 
 ### `RegisterWrite`
 Used for 16-bit register based functions (FC06)
-- 'set_reg(addr: u16, val: u16)`
+-  `set_reg(addr: u16, val: u16)`
 
 ### `BitRead`
 Used for bit based functions (FC01/FC02):
