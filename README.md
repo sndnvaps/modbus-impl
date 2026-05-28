@@ -32,6 +32,8 @@ At runtime the library processes fixed-length Modbus requests carried over a byt
 - **0x04** Read Input Registers (16-bit registers, big-endian in the payload)
 - **0x05** Write Single Coil
 - **0x06** Write Single Register
+- **0x0F** Write Multiple Coils
+- **0x10** Write Multiple Registers
 
 Coils/inputs are packed into bytes using Modbus rules (**LSB-first bit packing**).
 
@@ -47,8 +49,10 @@ Used for 16-bit register based functions (FC03/FC04):
 - `is_valid(addr: u16) -> bool`
 
 ### `RegisterWrite`
-Used for 16-bit register based functions (FC06)
-- 'set_reg(addr: u16, val: u16)`
+Used for 16-bit register based functions (FC06/FC16)
+-  `set_reg(addr: u16, val: u16)`
+-  `set_qty(qty: u16)`
+-  `get_qty() -> usize`
 
 ### `BitRead`
 Used for bit based functions (FC01/FC02):
@@ -56,13 +60,15 @@ Used for bit based functions (FC01/FC02):
 - `is_valid(addr: u16) -> bool`
 
 ### `BitWrite`
-Used for 16 bit based functions (FC05)
-- `set_bit(addr: u16, val: bool)`
+Used for 16 bit based functions (FC05/FC15)
+-  `set_bit(addr: u16, val: bool)`
+-  `set_qty(qty: u16)`
+-  `get_qty() -> usize`
 
 It also provides basic storage types that implement these traits:
-- `Hreg<N>` for Holding Registers (FC03/FC06)
+- `Hreg<N>` for Holding Registers (FC03/FC06/FC16)
 - `Ireg<N>` for Input Registers (FC04)
-- `Coil<N>` for Coils (FC01/FC05)
+- `Coil<N>` for Coils (FC01/FC05/FC15)
 - `Ists<N>` for Discrete Inputs (FC02)
 
 ---
@@ -75,15 +81,15 @@ Key components:
   Implements Modbus RTU CRC16.
 
 - **Frame parsing**  
-  - Requests are assumed to be **8 bytes long** (standard RTU frame for function 01/02/03/04 read requests, 05/06 write requests).
-  - `parse_pdu()` dispatch supports multiple function codes.
+  - Requests are assumed to be **8 bytes long** (standard RTU frame for function 01/02/03/04 read requests, 05/06/15/16 write requests).
+  - `parse_pdu()`  | `parse_frame` dispatch supports multiple function codes.
 
 - **Response builders**
   - `build_resp_bit_reads()` builds FC01/FC02 responses.
   - `build_resp_regs()` builds FC03/FC04 responses.
   - `build_exception_resp()` builds exception responses.
 
-- **`ModbusCtx::pharse_pdu()`**
+- **`ModbusCtx::pharse_frame()`**
   The main entry that takes a request frame and outputs either a response or an exception.
 
 ---
@@ -91,18 +97,19 @@ Key components:
 ## Typical Usage Flow
 
 In your main loop you typically:
-1. Receive bytes from `rp-usb-serial` into an 8-byte buffer.
+1. Receive bytes from `rp-usb-serial` into an 8-byte  or more byte depend on func `FrameLen4Func(func, &rx_accum, rx_len);` buffer.
 2. Call:
-   - `ctx.pharse_pdu::<MAX_QTY>(&req8, &mut resp_buf, &mut exc_buf)`
+   - `ctx.pharse_frame::<MAX_QTY>(frame, &mut resp_buf, &mut exc_buf);`
 3. Send the resulting frame back with:
    - `RpUsbConsole::write(&resp_or_exc[..len])`
 
+---
 
 ## Notes / Limitations
 
 - This library is RTU-focused but transport-agnostic: it assumes requests arrive as a byte stream and are accumulated into **exact 8-byte frames**.
-- Only **read** functions are implemented (01/02/03/04).
-- Write functions now include 05/06
+- **Read** functions are implemented (01/02/03/04).
+- **Write** functions are implemented (05/06/15/16).
 - Bit packing follows Modbus LSB-first conventions.
 
 ---
