@@ -1,4 +1,5 @@
 #![no_std]
+#![allow(non_snake_case)]
 /// RegisterRead：支持 is_valid(addr) 用于越界检查
 /// 支持03/04寄存器的读取(Hreg/Ireg)
 pub trait RegisterRead {
@@ -9,6 +10,8 @@ pub trait RegisterRead {
 /// 用于 FC06 写单保持寄存器
 pub trait RegisterWrite {
     fn set_reg(&mut self, addr: u16, val: u16);
+    fn set_qty(&mut self, qty: u16);
+    fn get_qty(&mut self) -> usize;
 }
 
 /// 支持 01/02 的位读取（Coil/ISTS）
@@ -20,22 +23,43 @@ pub trait BitRead {
 /// 用于 FC05 写单线圈
 pub trait BitWrite {
     fn set_bit(&mut self, addr: u16, val: bool);
+    fn set_qty(&mut self, qty: u16);
+    fn get_qty(&mut self) -> usize;
 }
 
 /// Coil 结构体（FC01）
 pub struct Coil<const N: usize> {
     regs: [bool; N],
+    qty: usize,
 }
 impl<const N: usize> Coil<N> {
     pub const fn new() -> Self {
-        Self { regs: [false; N] }
+        Self {
+            regs: [false; N],
+            qty: 0,
+        }
     }
+
     pub fn set_bit(&mut self, addr: u16, val: bool) {
         let i = addr as usize;
         if i < N {
             self.regs[i] = val;
         }
     }
+
+    pub fn set_qty(&mut self, qty: u16) {
+        let i = qty as usize;
+        if i < N {
+            self.qty = i;
+        }
+        //if i > N, qty = N-1
+        self.qty = N - 1;
+    }
+
+    pub fn get_qty(&mut self) -> usize {
+        self.qty
+    }
+
     pub fn as_bits(&self) -> &[bool] {
         &self.regs
     }
@@ -58,6 +82,14 @@ impl<const N: usize> BitRead for Coil<N> {
 impl<const N: usize> BitWrite for Coil<N> {
     fn set_bit(&mut self, addr: u16, val: bool) {
         Coil::set_bit(self, addr, val);
+    }
+
+    fn set_qty(&mut self, qty: u16) {
+        Coil::set_qty(self, qty);
+    }
+
+    fn get_qty(&mut self) -> usize {
+        Coil::get_qty(self)
     }
 }
 
@@ -122,11 +154,15 @@ impl<const N: usize> RegisterRead for Ireg<N> {
 ///HREG（保持寄存器）结构体（FC03）
 pub struct Hreg<const N: usize> {
     regs: [u16; N],
+    qty: usize,
 }
 
 impl<const N: usize> Hreg<N> {
     pub const fn new() -> Self {
-        Self { regs: [0; N] }
+        Self {
+            regs: [0; N],
+            qty: 0,
+        }
     }
 
     pub fn set(&mut self, addr: u16, val: u16) {
@@ -134,6 +170,19 @@ impl<const N: usize> Hreg<N> {
         if i < N {
             self.regs[i] = val;
         }
+    }
+
+    pub fn set_qty(&mut self, qty: u16) {
+        let i = qty as usize;
+        if i < N {
+            self.qty = i;
+        }
+        //if i > N, qty = N-1
+        self.qty = N - 1;
+    }
+
+    pub fn get_qty(&mut self) -> usize {
+        self.qty
     }
 
     pub fn as_slice(&self) -> &[u16] {
@@ -160,6 +209,12 @@ impl<const N: usize> RegisterWrite for Hreg<N> {
     fn set_reg(&mut self, addr: u16, val: u16) {
         Hreg::set(self, addr, val);
     }
+    fn set_qty(&mut self, qty: u16) {
+        Hreg::set_qty(self, qty);
+    }
+    fn get_qty(&mut self) -> usize {
+        Hreg::get_qty(self)
+    }
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -183,7 +238,7 @@ fn xorshift32_next() -> u32 {
 }
 
 /// 生成闭区间 [min(start_val,end_val), max(...)] 内的随机 u16
-pub fn random(start_val: u16, end_val: u16) -> u16 {
+pub fn Random(start_val: u16, end_val: u16) -> u16 {
     let (lo, hi) = if start_val <= end_val {
         (start_val, end_val)
     } else {
@@ -193,13 +248,6 @@ pub fn random(start_val: u16, end_val: u16) -> u16 {
     let span = (hi as u32).wrapping_sub(lo as u32).wrapping_add(1);
     let r = xorshift32_next() % span;
     (lo as u32 + r) as u16
-}
-
-#[derive(Clone, Copy, Debug)]
-pub struct Req03 {
-    pub unit_id: u8,
-    pub start_addr: u16,
-    pub quantity: u16,
 }
 
 pub mod exc {
@@ -522,6 +570,232 @@ where
             }
         }
     }
+
+    /// pharse_frame：处理可变长度 Modbus RTU 请求帧（01/02/03/04/05/06 固定8，15/16 可变）
+    /// out_tx：成功响应写入缓冲
+    /// out_exc：异常响应固定 5 字节缓冲
+    pub fn pharse_frame<const MAX_QTY: usize>(
+        &mut self,
+        req: &[u8],
+        out_tx: &mut [u8],
+        out_exc: &mut [u8; 5],
+    ) -> usize {
+        // 最小长度至少要有 unit(1)+func(1)+CRC(2)=4，但这里按 Modbus RTU 解析从 6 开始也行
+        if req.len() < 8 {
+            return build_exception_resp_fixed::<5>(
+                out_exc,
+                req.get(0).copied().unwrap_or(0),
+                0x80, // func未知时用 0x80占位（也可改成0）
+                exc::ILLEGAL_DATA_VALUE,
+            );
+        }
+
+        let unit_id = req[0];
+        let func = req[1];
+
+        // CRC check：最后两个字节为 CRC
+        let expected_crc = u16::from_le_bytes([req[req.len() - 2], req[req.len() - 1]]);
+        let calc_crc = crc16_modbus(&req[..req.len() - 2]);
+        if expected_crc != calc_crc {
+            return build_exception_resp_fixed::<5>(
+                out_exc,
+                unit_id,
+                func | 0x80,
+                exc::ILLEGAL_DATA_VALUE,
+            );
+        }
+
+        // -------- 共用字段起点：start_addr 在偏移2..4，quantity 在偏移4..6 --------
+        let start_addr = u16::from_be_bytes([req[2], req[3]]);
+        let quantity = u16::from_be_bytes([req[4], req[5]]);
+
+        // -------- 处理各功能码 --------
+        match func {
+            0x01 | 0x02 | 0x03 | 0x04 | 0x05 | 0x06 => {
+                if req.len() != 8 {
+                    return build_exception_resp_fixed::<5>(
+                        out_exc,
+                        unit_id,
+                        func | 0x80,
+                        exc::ILLEGAL_DATA_VALUE,
+                    );
+                }
+                let req8: [u8; 8] = req[..8].try_into().unwrap();
+                return self.pharse_pdu::<MAX_QTY>(&req8, out_tx, out_exc);
+            }
+
+            0x0F => {
+                // FC15：Write Multiple Coils
+                // 请求结构：Unit(1) Func(1) Start(2) Quantity(2) ByteCount(1) CoilsBytes(N) CRC(2)
+                // 长度：9 + ByteCount
+                if req.len() < 9 {
+                    return build_exception_resp_fixed::<5>(
+                        out_exc,
+                        unit_id,
+                        func | 0x80,
+                        exc::ILLEGAL_DATA_VALUE,
+                    );
+                }
+
+                let byte_count = req[6] as usize;
+                let expected_len = 9 + byte_count;
+                if req.len() != expected_len {
+                    return build_exception_resp_fixed::<5>(
+                        out_exc,
+                        unit_id,
+                        func | 0x80,
+                        exc::ILLEGAL_DATA_VALUE,
+                    );
+                }
+
+                // quantity 校验（01/02 的 MAX_QTY 你用同一个常量也可以）
+                if quantity == 0 || (quantity as usize) > MAX_QTY {
+                    return build_exception_resp_fixed::<5>(
+                        out_exc,
+                        unit_id,
+                        func | 0x80,
+                        exc::ILLEGAL_DATA_VALUE,
+                    );
+                }
+
+                // 地址范围校验：start..start+quantity-1
+                let end_addr = start_addr.wrapping_add(quantity.saturating_sub(1));
+                if !self.coils.is_valid(start_addr) || !self.coils.is_valid(end_addr) {
+                    return build_exception_resp_fixed::<5>(
+                        out_exc,
+                        unit_id,
+                        func | 0x80,
+                        exc::ILLEGAL_DATA_ADDRESS,
+                    );
+                }
+
+                // ByteCount 必须等于 ceil(quantity/8)
+                let min_byte_cnt = (quantity as usize + 7) / 8;
+                if byte_count != min_byte_cnt {
+                    return build_exception_resp_fixed::<5>(
+                        out_exc,
+                        unit_id,
+                        func | 0x80,
+                        exc::ILLEGAL_DATA_VALUE,
+                    );
+                }
+
+                //set the qty for the coils
+                self.coils.set_qty(quantity);
+
+                let coils_bytes = &req[7..7 + byte_count];
+
+                // 写入线圈（LSB-first packing）
+                for j in 0..quantity as usize {
+                    let addr = start_addr.wrapping_add(j as u16);
+                    let byte_i = j / 8;
+                    let bit_i = j % 8;
+                    let bit = ((coils_bytes[byte_i] >> bit_i) & 0x01) != 0;
+                    self.coils.set_bit(addr, bit);
+                }
+
+                // 响应：echo Unit Func StartAddr Quantity CRC（固定8字节）
+                // out_tx 需要至少 8 字节
+                out_tx[0] = unit_id;
+                out_tx[1] = 0x0F;
+                out_tx[2] = (start_addr >> 8) as u8;
+                out_tx[3] = (start_addr & 0xFF) as u8;
+                out_tx[4] = (quantity >> 8) as u8;
+                out_tx[5] = (quantity & 0xFF) as u8;
+
+                let crc = crc16_modbus(&out_tx[..6]);
+                out_tx[6] = (crc & 0xFF) as u8;
+                out_tx[7] = (crc >> 8) as u8;
+                8
+            }
+
+            0x10 => {
+                // FC16：Write Multiple Registers
+                // 请求结构：Unit Func Start(2) Quantity(2) ByteCount(1) RegBytes(2*Quantity) CRC(2)
+                if req.len() < 9 {
+                    return build_exception_resp_fixed::<5>(
+                        out_exc,
+                        unit_id,
+                        func | 0x80,
+                        exc::ILLEGAL_DATA_VALUE,
+                    );
+                }
+
+                let byte_count = req[6] as usize;
+                let expected_len = 9 + byte_count;
+                if req.len() != expected_len {
+                    return build_exception_resp_fixed::<5>(
+                        out_exc,
+                        unit_id,
+                        func | 0x80,
+                        exc::ILLEGAL_DATA_VALUE,
+                    );
+                }
+
+                if quantity == 0 || (quantity as usize) > MAX_QTY {
+                    return build_exception_resp_fixed::<5>(
+                        out_exc,
+                        unit_id,
+                        func | 0x80,
+                        exc::ILLEGAL_DATA_VALUE,
+                    );
+                }
+
+                let end_addr = start_addr.wrapping_add(quantity.saturating_sub(1));
+                if !self.holdings.is_valid(start_addr) || !self.holdings.is_valid(end_addr) {
+                    return build_exception_resp_fixed::<5>(
+                        out_exc,
+                        unit_id,
+                        func | 0x80,
+                        exc::ILLEGAL_DATA_ADDRESS,
+                    );
+                }
+
+                // ByteCount 必须等于 quantity*2
+                if byte_count != (quantity as usize) * 2 {
+                    return build_exception_resp_fixed::<5>(
+                        out_exc,
+                        unit_id,
+                        func | 0x80,
+                        exc::ILLEGAL_DATA_VALUE,
+                    );
+                }
+
+                //写入qty数据，方便后面调用
+                self.holdings.set_qty(quantity);
+
+                let reg_bytes = &req[7..7 + byte_count];
+
+                //写入保存寄存器
+                for j in 0..quantity as usize {
+                    let addr = start_addr.wrapping_add(j as u16);
+                    let base = j * 2;
+                    let v = u16::from_be_bytes([reg_bytes[base], reg_bytes[base + 1]]);
+                    self.holdings.set_reg(addr, v);
+                }
+
+                // 响应：echo Unit Func StartAddr Quantity CRC（固定8字节）
+                out_tx[0] = unit_id;
+                out_tx[1] = 0x10;
+                out_tx[2] = (start_addr >> 8) as u8;
+                out_tx[3] = (start_addr & 0xFF) as u8;
+                out_tx[4] = (quantity >> 8) as u8;
+                out_tx[5] = (quantity & 0xFF) as u8;
+
+                let crc = crc16_modbus(&out_tx[..6]);
+                out_tx[6] = (crc & 0xFF) as u8;
+                out_tx[7] = (crc >> 8) as u8;
+                8
+            }
+
+            _ => build_exception_resp_fixed::<5>(
+                out_exc,
+                unit_id,
+                func | 0x80,
+                exc::ILLEGAL_FUNCTION,
+            ),
+        }
+    }
 }
 
 // ---------------- helper：异常帧（固定 5 字节） ----------------
@@ -570,4 +844,24 @@ fn build_resp_regs<const MAX_QTY: usize, R: RegisterRead>(
     out_tx[body_len + 1] = (crc >> 8) as u8;
 
     body_len + 2
+}
+
+/// FrameLen4Func,获取func需要用到的数据长度
+/// get the len for func_code
+#[inline]
+pub fn FrameLen4Func(func: u8, buf: &[u8], cur_len: usize) -> Option<usize> {
+    // 固定 8 字节功能码
+    match func {
+        0x01 | 0x02 | 0x03 | 0x04 | 0x05 | 0x06 => return Some(8),
+
+        // FC15/FC16：长度 = 9 + ByteCount
+        0x0F | 0x10 => {
+            if cur_len < 7 {
+                return None; // 还没拿到 ByteCount
+            }
+            let byte_count = buf[6] as usize;
+            return Some(9 + byte_count);
+        }
+        _ => return None,
+    }
 }

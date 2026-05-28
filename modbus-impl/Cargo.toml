@@ -1,6 +1,6 @@
 [package]
 name = "modbus-impl"
-version = "0.6.0"
+version = "0.7.0"
 edition = "2021"
 rust-version = "1.77"
 documentation = "https://docs.rs/modbus-impl"
@@ -10,8 +10,9 @@ description = "A small `no_std` Modbus RTU helper library designed to run on emb
 build = false
 autolib = false
 keywords = [
-    "modbus",
     "embedded-hal",
+    "modbus",
+    "modbus-rtu",
     "no-std",
 ]
 categories = [
